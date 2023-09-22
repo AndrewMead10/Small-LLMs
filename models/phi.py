@@ -37,7 +37,7 @@ class Embedding(nn.Module):
 
 
 class MLP(nn.Module):
-    def __init__(self, hidden_size: int, dropout: float = 0.0):
+    def __init__(self, hidden_size: int):
         super().__init__()
         self.linear1 = nn.Linear(hidden_size, 4 * hidden_size, bias=True)
         self.linear2 = nn.Linear(4 * hidden_size, hidden_size, bias=True)
@@ -63,6 +63,7 @@ class KVCache(nn.Module):
         super().__init__()
         cache_shape = (max_batch_size, n_heads, max_seq_len, hidden_size // n_heads)
         self.k = torch.zeros(cache_shape, device=device, dtype=dtype)
+
         self.v = torch.zeros(cache_shape, device=device, dtype=dtype)
 
     def update(self, k_val, v_val, index):
@@ -130,10 +131,10 @@ class MHA(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        mask: torch.Tensor,
-        kv_cache: KVCache,
-        index: torch.Tensor,
-        rope: torch.Tensor,
+        mask: torch.Tensor = None,
+        kv_cache: KVCache = None,
+        index: torch.Tensor = None,
+        rope: torch.Tensor = None,
     ) -> torch.Tensor:
         B, T, C = x.size()
         qkv = self.Wqkv(x)
@@ -154,9 +155,7 @@ class MHA(nn.Module):
 
         k, v = kv_cache.update(k, v, index)
 
-        k, v = k[:, :, :T], v[:, :, :T]
-
-        # print(q.shape, k.shape, v.shape)
+        k, v = k[:, :, : index[-1] + 1], v[:, :, : index[-1] + 1]
 
         context = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0)
 
@@ -177,10 +176,10 @@ class Block(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        mask: torch.Tensor,
-        kv_cache: KVCache,
-        index: torch.Tensor,
-        rope: torch.Tensor,
+        mask: torch.Tensor = None,
+        kv_cache: KVCache = None,
+        index: torch.Tensor = None,
+        rope: torch.Tensor = None,
     ) -> torch.Tensor:
         residual = x
         x = self.ln(x)
@@ -211,6 +210,8 @@ class Phi(nn.Module):
         dropout: float = 0.0,
         n_blocks: int = 24,
         vocab_size: int = 51200,
+        device="cpu",
+        dtype=torch.float32,
     ):
         super().__init__()
         self.embedding = Embedding(vocab_size, hidden_size, dropout)
@@ -223,14 +224,17 @@ class Phi(nn.Module):
 
         self.hidden_size = hidden_size
         self.n_heads = n_heads
+        self.device = device
+        self.dtype = dtype
 
     def forward(
         self,
         x: torch.Tensor,
-        mask: torch.Tensor,
-        index: torch.Tensor,
-        rope: torch.Tensor,
+        mask: torch.Tensor = None,
+        index: torch.Tensor = None,
+        rope: torch.Tensor = None,
     ) -> torch.Tensor:
+        print(x)
         x = self.embedding(x)
         for i, block in enumerate(self.blocks):
             x = block(x, kv_cache=self.kv_cache[i], mask=mask, index=index, rope=rope)
@@ -240,30 +244,71 @@ class Phi(nn.Module):
     def init_cache(self):
         self.kv_cache.initialize_cache()
 
-        ones = torch.ones((2048, 2048))
+        ones = torch.ones((2048, 2048), device=self.device, dtype=self.dtype)
         self.mask_cache = torch.tril(ones).unsqueeze(0)
 
         self.rope_cache = build_rope_cache(
             seq_len=self.hidden_size,
             n_elem=32,
+            dtype=self.dtype,
+            device=self.device,
         )
 
     def generate(self, input_ids, max_length=1):
         # input_ids (BS, seq_len)
         bs, seq_len = input_ids.shape
         out_seq_len = seq_len + max_length
-        out_vec = torch.empty((bs, out_seq_len))
+        out_vec = torch.zeros((bs, out_seq_len), dtype=torch.long, device=self.device)
         out_vec[:, :seq_len] = input_ids
 
-        index = torch.arange(0, seq_len)
+        first_token = self.process_input(input_ids)
+        out_vec[:, seq_len] = first_token
+
+        index = torch.tensor([seq_len], device=self.device)
+
+        for i in range(max_length - 1):
+            # update rope
+            rope = self.rope_cache.index_select(0, index)
+            # make a 1,1 tensor from the value at out_vec[0, index]
+            cur_token = out_vec[0, index].unsqueeze(0).to(torch.int64)
+
+            output = self(cur_token, index=index, rope=rope)
+
+            token = self.sample_output(output)
+
+            out_vec[:, index + 1] = token
+            index = index + 1
+
+        return out_vec
+
+    def process_input(self, input_ids):
+        # input_ids (BS, seq_len)
+        bs, seq_len = input_ids.shape
+
+        index = torch.arange(0, seq_len, device=self.device)
         mask = self.mask_cache.index_select(2, index)
         mask = mask[:, :seq_len, :seq_len]
-        print(mask.shape)
         rope = self.rope_cache.index_select(0, index)
         # process input_ids and get first output
-        output = self(input_ids, mask.bool(), index, rope)
+        out = self(input_ids, mask.bool(), index, rope)
 
-        return output
+        token = self.sample_output(out)
+
+        return token
+
+    def fast_multinomial_sample_one(self, probs_sort):
+        q = torch.empty_like(probs_sort).exponential_(1)
+        return torch.argmax(probs_sort / q, dim=-1, keepdim=True)
+
+    def sample_output(self, logits):
+        # get the last token preds
+        next_token_logits = logits[0, -1]
+        # sample from our output logits
+        probs = F.softmax(next_token_logits, dim=-1)
+        # next_token = self.fast_multinomial_sample_one(probs)
+        next_token = probs.argmax(-1).unsqueeze(0)
+
+        return next_token
 
 
 def build_rope_cache(

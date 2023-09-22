@@ -4,7 +4,8 @@ import torch
 
 # Load model and tokenizer
 hf_model = AutoModelForCausalLM.from_pretrained(
-    "microsoft/phi-1_5", trust_remote_code=True, cache_dir="./model_cache/phi-1.5"
+    ".\\model_cache\\phi-1.5\\models--microsoft--phi-1_5\\snapshots\\4a426d8015bef5a0cb3acff8d4474ee9ab4071d5\\",
+    trust_remote_code=True,
 )
 hf_tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-1_5")
 
@@ -29,10 +30,20 @@ phi_model.load_state_dict(weights)
 # Compare outputs
 text = "Hello, my dog is cute"
 input = hf_tokenizer(text, return_tensors="pt")
+print(input["input_ids"])
 
-hf_output = hf_model(**input)
-phi_output = phi_model.generate(input["input_ids"])
 
-print(torch.allclose(hf_output.logits, phi_output))
-# print out the total error bewteen the models
-print(torch.sum(torch.abs(hf_output.logits - phi_output)))
+# hf_out = hf_model(input["input_ids"])
+
+# print(hf_out)
+# # phi_out = phi_model(input["input_ids"])
+
+# print(torch.allclose(hf_out.logits, phi_out.logits, atol=1e-5))
+
+hf_output = hf_model.generate(input["input_ids"], max_length=9, min_length=9)
+phi_output = phi_model.generate(input["input_ids"], max_length=3)
+
+print("HF output: {}".format(hf_output))
+print("Phi output: {}".format(phi_output))
+print(hf_tokenizer.decode(hf_output[0]))
+print(hf_tokenizer.decode(phi_output[0]))
