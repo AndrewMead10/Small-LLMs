@@ -41,8 +41,6 @@ class MHA(nn.Module):
             k, v = kv_cache.update(k, v, index)
             k, v = k[:, :, : index[-1] + 1], v[:, :, : index[-1] + 1]
 
-        # print(q.shape, k.shape, v.shape)
-
         context = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0)
 
         context = context.transpose(1, 2).contiguous().view(B, T, C)

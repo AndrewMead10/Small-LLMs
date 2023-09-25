@@ -1,16 +1,24 @@
 import torch
 import torch.nn.functional as F
 from smllm.modules.rope import build_rope_cache
+from smllm.inference.calm import CalmModel
 
 
 class Generate:
-    def __init__(self, model, model_max_length=2048):
+    def __init__(
+        self, model, model_max_length=2048, use_calm=False, calm_lambda=1, calm_temp=2
+    ):
         self.model = model
         self.hidden_size = model.hidden_size
         self.device = model.device
         self.dtype = model.dtype
         self.kv_cache = model.kv_cache
         self.model_max_length = model_max_length
+
+        self.model = self.model.eval()
+
+        if use_calm:
+            self.model = CalmModel(model, calm_lambda=calm_lambda, calm_temp=calm_temp)
 
         self.init_cache()
 
@@ -43,24 +51,25 @@ class Generate:
         out_vec = torch.zeros((bs, max_length), dtype=torch.long, device=self.device)
         out_vec[:, :seq_len] = input_ids
 
-        # process prompt and get first token
-        first_token = self.process_input(input_ids)
-        out_vec[:, seq_len] = first_token
+        with torch.no_grad():
+            # process prompt and get first token
+            first_token = self.process_input(input_ids)
+            out_vec[:, seq_len : seq_len + 1] = first_token
 
-        index = torch.tensor([seq_len] * bs, device=self.device)
+            index = torch.tensor([seq_len], device=self.device)
 
-        token = first_token
+            token = first_token
 
-        for _ in range(max_length - seq_len - 1):
-            rope = self.rope_cache.index_select(0, index)
+            for _ in range(max_length - seq_len - 1):
+                rope = self.rope_cache.index_select(0, index)
 
-            output = self.model(token, index=index, rope=rope)
-            token = self.sample_output(output)
+                output = self.model(token, index=index, rope=rope)
+                token = self.sample_output(output)
 
-            out_vec[:, index + 1] = token
-            index = index + 1
+                out_vec[:, index + 1 : index + 2] = token
+                index = index + 1
 
-        return out_vec
+            return out_vec
 
     def process_input(self, input_ids):
         # input_ids (BS, seq_len)
@@ -72,9 +81,7 @@ class Generate:
         rope = self.rope_cache.index_select(0, index)
         # process input_ids and get first output
         out = self.model(input_ids, mask.bool(), index, rope)
-        print(out.shape)
         token = self.sample_output(out)
-        print(token.shape)
 
         return token
 
@@ -85,7 +92,6 @@ class Generate:
     def sample_output(self, logits):
         # get the last token preds
         next_token_logits = logits[:, -1]
-        print(next_token_logits.shape)
         # sample from our output logits
         probs = F.softmax(next_token_logits, dim=-1)
         # next_token = self.fast_multinomial_sample_one(probs)

@@ -38,6 +38,7 @@ class Phi(nn.Module):
         dropout: float = 0.0,
         n_blocks: int = 24,
         vocab_size: int = 51200,
+        max_seq_len: int = 2048,
         device="cpu",
         dtype=torch.float32,
     ):
@@ -51,13 +52,17 @@ class Phi(nn.Module):
         )
         self.lm_head = LMHead(hidden_size, vocab_size)
 
-        if self.eval():
-            self.kv_cache = ModelKVCache(n_blocks, 2, 2048, hidden_size, n_heads)
+        self.batch_size = 1
+
+        if self.eval:
+            self.kv_cache = ModelKVCache(n_blocks, 1, max_seq_len, hidden_size, n_heads)
         else:
             self.kv_cache = None
 
         self.hidden_size = hidden_size
         self.n_heads = n_heads
+        self.n_blocks = n_blocks
+        self.max_seq_len = max_seq_len
         self.device = device
         self.dtype = dtype
 
@@ -68,8 +73,16 @@ class Phi(nn.Module):
         index: torch.Tensor = None,
         rope: torch.Tensor = None,
     ) -> torch.Tensor:
-        print(x)
+        bs, seq_len = x.shape
+
+        if bs != self.batch_size and self.eval:
+            self.batch_size = bs
+            self.kv_cache = ModelKVCache(
+                self.n_blocks, bs, self.max_seq_len, self.hidden_size, self.n_heads
+            )
+
         x = self.embedding(x)
+
         for i, block in enumerate(self.blocks):
             if self.training:
                 x = block(x, mask=mask, rope=rope)
@@ -77,6 +90,7 @@ class Phi(nn.Module):
                 x = block(
                     x, kv_cache=self.kv_cache[i], mask=mask, index=index, rope=rope
                 )
+
         x = self.lm_head(x)
         return x
 
