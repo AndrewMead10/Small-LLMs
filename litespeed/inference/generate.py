@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
-from smllm.modules.rope import build_rope_cache
-from smllm.inference.calm import CalmModel
+from litespeed.modules.rope import build_rope_cache
+from litespeed.inference.calm import CalmModel
 
 
 class Generate:

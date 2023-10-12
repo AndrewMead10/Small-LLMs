@@ -1,8 +1,8 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from smllm.modules.rope import apply_rope
-from smllm.inference.KVCache import KVCache
+from litespeed.modules.rope import apply_rope
+from litespeed.inference.KVCache import KVCache
 
 
 class MHA(nn.Module):

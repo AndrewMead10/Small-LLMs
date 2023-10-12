@@ -1,6 +1,6 @@
 from torch import nn
 import torch
-from smllm.modules.activation import Gelu
+from litespeed.modules.activation import Gelu
 
 
 class GeluMLP(nn.Module):

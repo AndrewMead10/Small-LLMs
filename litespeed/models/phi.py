@@ -1,8 +1,8 @@
 import torch
 from torch import nn
-from smllm.modules.linears import GeluMLP, Embedding, LMHead
-from smllm.modules.attention import MHA
-from smllm.inference.KVCache import KVCache, ModelKVCache
+from litespeed.modules.linears import GeluMLP, Embedding, LMHead
+from litespeed.modules.attention import MHA
+from litespeed.inference.KVCache import KVCache, ModelKVCache
 
 
 class PhiTransformerBlock(nn.Module):

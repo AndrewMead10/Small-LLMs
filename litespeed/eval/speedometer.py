@@ -1,5 +1,5 @@
-from smllm.models.phi import Phi
-from smllm.inference.generate import Generate
+from litespeed.models.phi import Phi
+from litespeed.inference.generate import Generate
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 import time
