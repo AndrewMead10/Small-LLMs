@@ -2,3 +2,6 @@ __pycache__
 model_cache
 smllm.egg-info
 build
+litespeed.egg-info
+dist
+1M-GPT4-Augmented.parquet

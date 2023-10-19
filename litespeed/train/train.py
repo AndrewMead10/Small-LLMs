@@ -6,7 +6,6 @@ import time
 
 from litespeed.data.make_dataset import make_train_dl
 from litespeed.train.lora import add_lora_layers
-from litespeed.train.train_utils import CheckpointWrapper
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -29,7 +28,7 @@ if __name__ == "__main__":
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         torch_dtype=torch.bfloat16,
-        # use_flash_attention=True,
+        use_flash_attention_2=True,
         device_map="auto",
         trust_remote_code=True,
     )
@@ -56,10 +55,10 @@ if __name__ == "__main__":
         model.enable_input_require_grads()
 
     if use_torch_compile:
-        model = torch.compile(model)
+        model = torch.compile(model, mode="reduce-overhead")
 
     train_dataloader = make_train_dl(
-        "C:\\Users\\andre\\OneDrive\\Documents\\coding projects\\small LLMs\\litespeed\\data",
+        "/home/andrew/Documents/coding/litespeed/litespeed/data/",
         tokenizer,
         ["system_prompt", "question", "response"],
         batch_size=batch_size,
