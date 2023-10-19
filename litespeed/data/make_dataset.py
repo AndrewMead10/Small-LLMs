@@ -18,7 +18,7 @@ def make_train_dl(dataset_name, tokenizer, data_columns, batch_size=32, num_work
             examples["text"],
             truncation=True,
             padding="max_length",
-            max_length=2048,
+            max_length=512,
         )
 
     if tokenizer.pad_token is None:

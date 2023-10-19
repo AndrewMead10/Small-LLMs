@@ -22,24 +22,23 @@ class LoraLinear(nn.Module):
             device="cuda:0",
             dtype=orig_weight.dtype,
         )
-        self.orig_linear.requires_grad_(False)
 
         if orig_weight is not None:
             self.orig_linear.weight.data = orig_weight.data
         if orig_bias is not None:
             self.orig_linear.bias.data = orig_bias.data
 
-        self.downsample = nn.Linear(
+        self.lora_A = nn.Linear(
             out_features, r, bias=False, device="cuda:0", dtype=orig_weight.dtype
         )
-        self.upsample = nn.Linear(
+        self.lora_B = nn.Linear(
             r, out_features, bias=False, device="cuda:0", dtype=orig_weight.dtype
         )
 
         self.dropout = nn.Dropout(dropout)
 
-        nn.init.kaiming_uniform_(self.downsample.weight, a=math.sqrt(5))
-        nn.init.zeros_(self.upsample.weight)
+        nn.init.kaiming_uniform_(self.lora_A.weight, a=math.sqrt(5))
+        nn.init.zeros_(self.lora_B.weight)
 
         self.scaling = alpha / r
 
@@ -49,8 +48,8 @@ class LoraLinear(nn.Module):
         x = self.orig_linear(x)
         if not self.merged:
             x = self.dropout(x)
-            x = self.downsample(x)
-            x = self.upsample(x)
+            x = self.lora_A(x)
+            x = self.lora_B(x)
             x = x * self.scaling
 
         return x
@@ -58,7 +57,7 @@ class LoraLinear(nn.Module):
     def merge(self):
         if not self.merged:
             self.orig_linear.weight.data += (
-                self.downsample.weight.data @ self.upsample.weight.data
+                self.lora_A.weight.data @ self.lora_B.weight.data
             ) * self.scaling
             self.merged = True
 
